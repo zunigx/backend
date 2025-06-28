@@ -1,0 +1,9 @@
+# Ignorar el entorno virtual
+venv/
+
+#Ignorar la carpeta logs
+logs/
+
+# Ignorar archivos temporales de Python
+_pycache_/
+*.pyc
