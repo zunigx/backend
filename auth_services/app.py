@@ -1,10 +1,12 @@
 from flask import Flask, jsonify, request
 import jwt
+from flask_cors import CORS # type: ignore
 import datetime
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+CORS(app)
 
 SECRET_KEY = 'QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g'
 DB_NAME = "database.db"

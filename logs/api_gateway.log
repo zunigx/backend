@@ -1,17 +1,12 @@
  * Serving Flask app 'app'
  * Debug mode: on
-[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
  * Running on http://127.0.0.1:5000
-[33mPress CTRL+C to quit[0m
+Press CTRL+C to quit
  * Restarting with stat
  * Debugger is active!
- * Debugger PIN: 918-012-168
-127.0.0.1 - - [27/Jun/2025 19:08:41] "GET /user/users HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:16:18] "GET /task/tasks HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:33:19] "POST /auth/register HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:33:24] "POST /auth/login HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:33:43] "[31m[1mPOST /task/register_task HTTP/1.1[0m" 400 -
-127.0.0.1 - - [27/Jun/2025 19:33:54] "POST /task/register_task HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:34:13] "[31m[1mPUT /task/update_task/1 HTTP/1.1[0m" 401 -
-127.0.0.1 - - [27/Jun/2025 19:34:26] "PUT /task/update_task/1 HTTP/1.1" 200 -
-127.0.0.1 - - [27/Jun/2025 19:34:32] "GET /task/tasks HTTP/1.1" 200 -
+ * Debugger PIN: 402-762-163
+127.0.0.1 - - [07/Jul/2025 01:51:10] "OPTIONS /auth/register HTTP/1.1" 200 -
+127.0.0.1 - - [07/Jul/2025 01:51:11] "POST /auth/register HTTP/1.1" 200 -
+127.0.0.1 - - [07/Jul/2025 01:51:20] "OPTIONS /auth/login HTTP/1.1" 200 -
+127.0.0.1 - - [07/Jul/2025 01:51:21] "POST /auth/login HTTP/1.1" 200 -

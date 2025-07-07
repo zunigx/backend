@@ -2,7 +2,7 @@
 venv/
 
 #Ignorar la carpeta logs
-logs/
+log
 
 # Ignorar archivos temporales de Python
 _pycache_/
