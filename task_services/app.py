@@ -1,11 +1,14 @@
 from flask import Flask, jsonify, request
 import sqlite3
 import datetime
+from flask_cors import CORS # type: ignore
 import jwt
 from functools import wraps
 import datetime
 
 app = Flask(__name__)
+CORS(app)
+
 
 SECRET_KEY = 'QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g'
 DB_NAME = "database.db"
@@ -162,6 +165,50 @@ def id_task(task_id):
     except sqlite3.Error as e:
         return jsonify({"message": f"Error en la base de datos: {str(e)}", "status": "error"}), 500
     
+    
+# Ruta para obtener una tarea por Usuario
+@app.route('/Usertasks/<string:created_by>', methods=['GET'])
+@token_required
+def get_task_created_by(created_by):
+    """Obtiene todas las tareas creadas por un usuario específico."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, description, created_at, dead_line, status, is_alive, created_by FROM tasks WHERE created_by = ?",
+            (created_by,)
+        )
+        tasks = cursor.fetchall()
+        conn.close()
+        
+        if not tasks:
+            return jsonify({
+                "statusCode": 404,
+                "intData": {
+                    "message": "No se encontraron tareas para este usuario.",
+                    "data": []
+                }
+            })
+        
+        return jsonify({
+            "statusCode": 200,
+            "intData": {
+                "message": "Tareas recuperadas con éxito",
+                "data": [{
+                    "id": task["id"],
+                    "name": task["name"],
+                    "description": task["description"],
+                    "created_at": task["created_at"],
+                    "dead_line": task["dead_line"],
+                    "status": task["status"],
+                    "is_alive": task["is_alive"],
+                    "created_by": task["created_by"]
+                } for task in tasks]
+            }
+        })
+    except sqlite3.Error as e:
+        return jsonify({"message": f"Error en la base de datos: {str(e)}", "status": "error"}),
+    
 
 # Opciones válidas para status
 VALID_STATUSES = ['InProgress', 'Revision', 'Completed', 'Paused', 'Incomplete']
@@ -288,6 +335,70 @@ def enable_task(task_id):
             "statusCode": 200,
             "intData": {
                 "message": "Tarea habilitada exitosamente",
+                "data": None
+            }
+        })
+    except sqlite3.Error as e:
+        return jsonify({
+            "statusCode": 500,
+            "intData": {
+                "message": f"Database error: {str(e)}",
+                "data": None
+            }
+        })
+        
+# Ruta para actualizar solo el estado de una tarea
+@app.route('/update_task_status/<int:task_id>', methods=['PUT'])
+@token_required
+def update_task_status(task_id):
+    data = request.get_json()
+    
+    if 'status' not in data:
+        return jsonify({
+            "statusCode": 400,
+            "intData": {
+                "message": "El campo status es obligatorio",
+                "data": None
+            }
+        })
+    
+    status = data['status']
+    
+    # Validar que status sea correcto
+    if status not in VALID_STATUSES:
+        return jsonify({
+            "statusCode": 400,
+            "intData": {
+                "message": f"El status debe ser uno de: {', '.join(VALID_STATUSES)}",
+                "data": None
+            }
+        })
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            (status, task_id)
+        )
+        conn.commit()
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({
+                "statusCode": 404,
+                "intData": {
+                    "message": "Tarea no encontrada para actualizar estado",
+                    "data": None
+                }
+            })
+        
+        conn.close()
+        return jsonify({
+            "statusCode": 200,
+            "intData": {
+                "message": "Estado de la tarea actualizado exitosamente",
                 "data": None
             }
         })

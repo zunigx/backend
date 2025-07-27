@@ -4,6 +4,10 @@ from flask_cors import CORS # type: ignore
 import datetime
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
+import pyotp # type: ignore
+import qrcode # type: ignore
+from io import BytesIO
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -20,12 +24,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            two_factor_secret TEXT DEFAULT NULL,
+            two_factor_enabled BOOLEAN DEFAULT FALSE
         )
     """)
-
-
-# Insertar usuarios de prueba
+    
     # Insertar usuarios de prueba
     users = [
         {"id": 1, "username": "user1", "password": "pass1"},
@@ -42,7 +46,6 @@ def init_db():
         )
     conn.commit()
     conn.close()
-
 
 # Ruta para registrar un nuevo usuario
 @app.route('/register', methods=['POST'])
@@ -62,7 +65,6 @@ def register():
     username = data['username']
     password = data['password']
     
-    
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
@@ -79,13 +81,27 @@ def register():
                 }
             })
         
+        # Generar secreto TOTP
+        secret = pyotp.random_base32()
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(name=username, issuer_name='TuApp')
+        
+        # Generar código QR
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(provisioning_uri)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        qr_code = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
         # Hash de la contraseña
         hashed_password = generate_password_hash(password)
         
         cursor.execute(
-            """INSERT INTO users (username, password)
-                VALUES (?, ?)""",
-            (username, hashed_password)
+            """INSERT INTO users (username, password, two_factor_secret, two_factor_enabled)
+                VALUES (?, ?, ?, ?)""",
+            (username, hashed_password, secret, True)
         )
         conn.commit()
         conn.close()
@@ -93,8 +109,11 @@ def register():
         return jsonify({
             "statusCode": 201,
             "intData": {
-                "message": "Usuario registrado exitosamente",
-                "data": None
+                "message": "Usuario registrado exitosamente. Escanea el código QR con tu app de autenticación.",
+                "data": {
+                    "qr_code": f"data:image/png;base64,{qr_code}",
+                    "secret": secret
+                }
             }
         })
     except sqlite3.Error as e:
@@ -105,29 +124,29 @@ def register():
                 "data": None
             }
         })
-    
-    
+
 # Ruta para iniciar sesión
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
+    otp = data.get('otp')
     
-    if not username or not password:
+    if not username or not password or not otp:
         return jsonify({
             "statusCode": 400,
             "intData": {
-                "message": "Usuario y contraseña son requeridos",
+                "message": "Usuario, contraseña y código OTP son requeridos",
                 "data": None
             }
         })
     
     try:
         conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row  # Permite acceder a las columnas por nombre 
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT id, username, password FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT id, username, password, two_factor_secret, two_factor_enabled FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
         conn.close()
         
@@ -140,14 +159,25 @@ def login():
                 }
             })
         
+        if user["two_factor_enabled"]:
+            totp = pyotp.TOTP(user["two_factor_secret"])
+            if not totp.verify(otp, valid_window=1):
+                return jsonify({
+                    "statusCode": 401,
+                    "intData": {
+                        "message": "Código OTP inválido",
+                        "data": None
+                    }
+                })
+        
         payload = {
             'user_id': user["id"],
             'username': user["username"],
-            'permission': 'admin', 
+            'permission': 'admin',
             'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
         }
         token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
-
+        
         return jsonify({
             "statusCode": 200,
             "intData": {
@@ -164,7 +194,6 @@ def login():
             }
         })
 
-#! Iniciamos el servidor  en el puerto 5001
 if __name__ == '__main__':
     init_db()
     app.run(port=5001, debug=True)
