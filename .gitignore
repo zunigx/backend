@@ -1,8 +1,14 @@
 # Ignorar el entorno virtual
 venv/
 
+# Bases de datos locales
+*.db
+
+# Logs
+*.log
+
 #Ignorar la carpeta logs
-log
+logs
 
 # Ignorar archivos temporales de Python
 _pycache_/
