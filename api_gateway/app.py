@@ -1,28 +1,37 @@
-import requests
-from flask_cors import CORS
-from flask import Flask, jsonify, request
-from flask_limiter import Limiter, RateLimitExceeded
-from flask_limiter.util import get_remote_address
+import os
 import time
 import logging
 import jwt
-from pymongo import MongoClient
+import requests
 from datetime import datetime
-import os  # Agregado para variables de entorno
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_limiter import Limiter, RateLimitExceeded
+from flask_limiter.util import get_remote_address
+from pymongo import MongoClient
+import ssl
 
+# =========================
+# Configuración Flask
+# =========================
 app = Flask(__name__)
 CORS(app)
 
-# Configuración de MongoDB Atlas desde variables de entorno
-MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-client = MongoClient(MONGO_URI)
-db = client['gateway_db']
-logs_collection = db['logs']
+# =========================
+# Variables de entorno
+# =========================
+MONGO_URI = os.environ.get(
+    'MONGO_URI',
+    "mongodb+srv://usuario:contraseña@cluster0.rquhrnu.mongodb.net/gateway_db?retryWrites=true&w=majority&tls=true"
+)
+AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "http://localhost:5001")
+USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "http://localhost:5002")
+TASK_SERVICE_URL = os.environ.get('TASK_SERVICE_URL', "http://localhost:5003")
+SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
 
-# Crear índices para logs
-logs_collection.create_index("timestamp")
-
+# =========================
 # Configuración del logger
+# =========================
 logging.basicConfig(
     filename='api.log',
     level=logging.DEBUG,
@@ -30,13 +39,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger('api_logger')
 
-# Configuración de servicios desde variables de entorno
-AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "http://localhost:5001")
-USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "http://localhost:5002")
-TASK_SERVICE_URL = os.environ.get('TASK_SERVICE_URL', "http://localhost:5003")
-SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
-
-# Configuración de Flask-Limiter
+# =========================
+# Configuración Rate Limiter
+# =========================
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -44,6 +49,34 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
+# =========================
+# Conexión diferida a MongoDB
+# =========================
+client = None
+db = None
+logs_collection = None
+
+def init_db():
+    global client, db, logs_collection
+    try:
+        client = MongoClient(
+            MONGO_URI,
+            tls=True,
+            tlsAllowInvalidCertificates=False  # Cambiar a True si sigue fallando por certificados
+        )
+        db = client['gateway_db']
+        logs_collection = db['logs']
+        logs_collection.create_index("timestamp")
+        print("[OK] Conectado a MongoDB Atlas")
+    except Exception as e:
+        print(f"[Error] No se pudo conectar a MongoDB: {e}")
+
+# Inicializamos DB al iniciar el servidor
+init_db()
+
+# =========================
+# Manejador de errores Rate Limit
+# =========================
 @app.errorhandler(RateLimitExceeded)
 def rate_limit_exceeded(e):
     route_limits = {
@@ -54,7 +87,7 @@ def rate_limit_exceeded(e):
     default_limits = '200 peticiones por día, 50 peticiones por hora'
     route = request.path.split('/')[1] + '/' if request.path.startswith(('/auth/', '/user/', '/task/')) else None
     limit_message = route_limits.get(route, default_limits)
-    
+
     response = jsonify({
         'error': 'Límite de peticiones excedido',
         'message': f'Has alcanzado el límite de peticiones: {limit_message}. Por favor, intenta de nuevo más tarde.',
@@ -63,10 +96,16 @@ def rate_limit_exceeded(e):
     response.status_code = 429
     return response
 
+# =========================
+# Logging de requests
+# =========================
 def log_request(response):
+    if logs_collection is None:
+        return response  # Si DB no está lista, no loguea
+
     start_time = getattr(request, 'start_time', time.time())
     duration = time.time() - start_time
-    
+
     user = 'anonymous'
     token = request.headers.get('Authorization')
     if token and token.startswith('Bearer '):
@@ -91,7 +130,10 @@ def log_request(response):
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'user': user
     }
-    logs_collection.insert_one(log_entry)
+    try:
+        logs_collection.insert_one(log_entry)
+    except Exception as e:
+        logger.error(f"Error guardando log en MongoDB: {e}")
 
     log_message = (
         f"Route: {request.path} "
@@ -118,8 +160,13 @@ def after_request(response):
     log_request(response)
     return response
 
+# =========================
+# Rutas
+# =========================
 @app.route('/logs', methods=['GET'])
 def get_logs():
+    if logs_collection is None:
+        return jsonify({"error": "Base de datos no disponible"}), 500
     logs = list(logs_collection.find().sort('timestamp', -1).limit(100))
     for log in logs:
         log['_id'] = str(log['_id'])
@@ -164,6 +211,9 @@ def proxy_task(path):
     )
     return jsonify(resp.json()), resp.status_code
 
+# =========================
+# Arranque de la app
+# =========================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
