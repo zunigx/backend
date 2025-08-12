@@ -1,155 +1,74 @@
-# Importamos Flask para crear la aplicación web, jsonify para devolver respuestas JSON
-# y request para leer los datos enviados en las peticiones HTTP
 from flask import Flask, jsonify, request
-
-# Importamos sqlite3 para manejar la base de datos SQLite
 import sqlite3
-
-# Importamos funciones de werkzeug para generar hashes seguros de contraseñas
 from werkzeug.security import generate_password_hash
+from flask_limiter import Limiter  # type: ignore
+from flask_limiter.util import get_remote_address  # type: ignore
+from pymongo import MongoClient  # type: ignore
+import os  # Agregado para variables de entorno
 
-# Creamos una instancia de la aplicación Flask
 app = Flask(__name__)
 
-# Definimos la ubicación de la base de datos (relativa a esta carpeta)
-DB_NAME = "../auth_services/database.db"
+client = MongoClient(os.environ.get('MONGO_URI', 'mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/users_db?retryWrites=true&w=majority&appName=Cluster0'))
+db = client['users_db']
+users_collection = db['users']
 
-# Ruta para obtener todos los usuarios (GET /users)
+limiter = Limiter(
+    get_remote_address,
+    default_limits=["100 per minute"]
+)
+
 @app.route('/users', methods=['GET'])
+@limiter.limit("100 per minute")
 def get_users():
-    # Nos conectamos a la base de datos
-    conn = sqlite3.connect(DB_NAME)
-    # Configuramos la conexión para que las filas se puedan acceder como diccionarios
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Ejecutamos la consulta para obtener todos los usuarios (solo id y username)
-    cursor.execute("SELECT id, username FROM users")
-
-    # Convertimos el resultado a una lista de diccionarios
-    users = [dict(row) for row in cursor.fetchall()]
-
-    # Cerramos la conexión a la base de datos
-    conn.close()
-
-    # Devolvemos la lista de usuarios en formato JSON y código HTTP 200 (OK)
+    users = list(users_collection.find({}, {"_id": 0, "username": 1, "id": 1}))
     return jsonify({"users": users}), 200
 
-# Ruta para obtener un usuario por su ID (GET /users_id/<id>)
 @app.route('/users_id/<int:user_id>', methods=['GET'])
+@limiter.limit("100 per minute")
 def get_user(user_id):
-    # Conexión a la base de datos
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Consulta para buscar al usuario por ID
-    cursor.execute("SELECT id, username FROM users WHERE id = ?", (user_id,))
-    user = cursor.fetchone()
-
-    # Cerramos la conexión
-    conn.close()
-
-    # Si no se encuentra el usuario, devolvemos error 404 (Not Found)
-    if user is None:
+    user = users_collection.find_one({"id": user_id}, {"_id": 0, "username": 1, "id": 1})
+    if not user:
         return jsonify({"error": "Usuario con ID no encontrado"}), 404
+    return jsonify({"user": user})
 
-    # Si se encuentra, devolvemos sus datos en formato JSON
-    return jsonify({"user": dict(user)})
-
-# Ruta para crear un nuevo usuario (POST /create_user)
 @app.route('/create_user', methods=['POST'])
+@limiter.limit("100 per minute")
 def create_user():
-    # Validamos que la petición contenga un JSON con 'username' y 'password'
     if not request.json or 'username' not in request.json or 'password' not in request.json:
         return jsonify({"error": "Username y password son requeridos"}), 400
-
-    # Obtenemos los datos enviados
     username = request.json['username']
     password = request.json['password']
-
-    # Encriptamos la contraseña usando hash seguro
     hashed_password = generate_password_hash(password)
-
-    # Conectamos a la base de datos
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    try:
-        # Insertamos el nuevo usuario en la base de datos
-        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
-        conn.commit()
-
-        # Obtenemos el ID del usuario recién creado
-        user_id = cursor.lastrowid
-
-        # Devolvemos el usuario creado con código 201 (Created)
-        return jsonify({"user": {"id": user_id, "username": username}}), 201
-
-    # Si el username ya existe, capturamos el error y devolvemos 400 (Bad Request)
-    except sqlite3.IntegrityError:
+    if users_collection.find_one({"username": username}):
         return jsonify({"error": "Username ya existe"}), 400
+    user = {"username": username, "password": hashed_password, "id": users_collection.count_documents({}) + 1}
+    users_collection.insert_one(user)
+    return jsonify({"user": {"id": user["id"], "username": username}}), 201
 
-    # Cerramos siempre la conexión
-    finally:
-        conn.close()
-
-# Ruta para actualizar un usuario existente (PUT /update_user/<id>)
 @app.route('/update_user/<int:user_id>', methods=['PUT'])
+@limiter.limit("100 per minute")
 def update_user(user_id):
-    # Validamos que la petición contenga al menos 'username' o 'password'
     if not request.json or ('username' not in request.json and 'password' not in request.json):
         return jsonify({"error": "Username o password requeridos para actualizar"}), 400
-
-    # Conectamos a la base de datos
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Verificamos que exista un usuario con ese ID
-    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-    if not cursor.fetchone():
-        conn.close()
+    if not users_collection.find_one({"id": user_id}):
         return jsonify({"error": "Usuario no encontrado"}), 404
-
-    # Si se envía un nuevo username, lo actualizamos
+    update_data = {}
     if 'username' in request.json:
-        username = request.json['username']
-        cursor.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
-
-    # Si se envía una nueva password, la encriptamos y la actualizamos
+        update_data['username'] = request.json['username']
     if 'password' in request.json:
-        password = request.json['password']
-        hashed_password = generate_password_hash(password)
-        cursor.execute("UPDATE users SET password = ? WHERE id = ?", (hashed_password, user_id))
-
-    # Guardamos los cambios
-    conn.commit()
-    conn.close()
-
-    # Devolvemos un mensaje de éxito
+        update_data['password'] = generate_password_hash(request.json['password'])
+    if update_data:
+        users_collection.update_one({"id": user_id}, {"$set": update_data})
     return jsonify({"message": "Usuario actualizado exitosamente"})
 
-# Ruta para eliminar un usuario (DELETE /delete_user/<id>)
 @app.route('/delete_user/<int:user_id>', methods=['DELETE'])
+@limiter.limit("100 per minute")
 def delete_user(user_id):
-    # Conexión a la base de datos
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Verificamos que exista un usuario con ese ID
-    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-    if not cursor.fetchone():
-        conn.close()
+    if not users_collection.find_one({"id": user_id}):
         return jsonify({"error": "Usuario no encontrado"}), 404
-
-    # Eliminamos al usuario de la base de datos
-    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-    # Devolvemos un mensaje de éxito
+    users_collection.delete_one({"id": user_id})
     return jsonify({"message": "Usuario eliminado exitosamente"}), 200
 
-# Ejecutamos la aplicación Flask en el puerto 5002 cuando se ejecute este archivo directamente
 if __name__ == '__main__':
-    app.run(port=5002, debug=True)
+    port = int(os.environ.get('PORT', 5002))
+    app.run(host='0.0.0.0', port=port, debug=True)

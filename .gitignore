@@ -1,15 +1,38 @@
-# Ignorar el entorno virtual
+# Entornos virtuales
 venv/
+env/
+*.pyc
+__pycache__/
 
-# Bases de datos locales
-*.db
-
-# Logs
+# Archivos de logs
 *.log
 
-#Ignorar la carpeta logs
-logs
+# Archivos de configuración sensibles (por ejemplo, .env para variables de entorno)
+*.env
+.env
 
-# Ignorar archivos temporales de Python
-_pycache_/
-*.pyc
+# Archivos generados por IDEs
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Archivos temporales y de sistema
+*.swp
+*.swo
+.DS_Store
+
+# Carpetas y archivos de build (si los generas)
+build/
+dist/
+
+# Archivos de base de datos locales (si los usas)
+*.db
+*.sqlite
+
+# Ignorar scripts de inicio/parada si no son necesarios en Render (opcional, ya que los reemplazaste)
+start_services.sh
+stop_services.sh
+
+# Ignorar archivos binarios o compilados
+*.o
+*.so

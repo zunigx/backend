@@ -1,80 +1,87 @@
 from flask import Flask, jsonify, request
-import sqlite3
 import datetime
-from flask_cors import CORS # type: ignore
+from flask_cors import CORS
 import jwt
 from functools import wraps
-import datetime
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from pymongo import MongoClient
+from bson import ObjectId
+from werkzeug.security import generate_password_hash
+import os  # Agregado para variables de entorno
 
 app = Flask(__name__)
 CORS(app)
 
+# Configuración de MongoDB Atlas y claves desde variables de entorno
+SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
+MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/tasks_db?retryWrites=true&w=majority&appName=Cluster0")
+client = MongoClient(MONGO_URI)
+db = client['tasks_db']
+tasks_collection = db['tasks']
+users_collection = db['users']
 
-SECRET_KEY = 'QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g'
-DB_NAME = "database.db"
+# Crear índices para evitar duplicados
+tasks_collection.create_index("name", unique=True)
+users_collection.create_index("username", unique=True)
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+VALID_STATUSES = ['InProgress', 'Revision', 'Completed', 'Paused', 'Incomplete']
 
 def validate_date(date_str: str) -> bool:
-    """Valida formato de fecha (YYYY-MM-DD)."""
     try:
         datetime.datetime.strptime(date_str, '%Y-%m-%d')
         return True
-    except ValueError:
+    except ValueError:  
         return False
 
-# Conexión a la base de datos
-def get_db_connection() -> sqlite3.Connection:
-    """Crea conexión a la base de datos con row_factory."""
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL,
-            created_at DATE NOT NULL,
-            dead_line DATE NOT NULL,
-            status TEXT NOT NULL,
-            is_alive BOOLEAN NOT NULL,
-            created_by TEXT NOT NULL
+    users = [
+        {"username": "username1", "password": generate_password_hash("Hola.123"), "status": 1, "two_factor_enabled": False},
+        {"username": "username2", "password": generate_password_hash("Hola.123"), "status": 1, "two_factor_enabled": False},
+        {"username": "username3", "password": generate_password_hash("Hola.123"), "status": 1, "two_factor_enabled": False},
+        {"username": "username4", "password": generate_password_hash("Hola.123"), "status": 1, "two_factor_enabled": False}
+    ]
+    for user in users:
+        users_collection.update_one(
+            {"username": user["username"]},
+            {"$setOnInsert": user},
+            upsert=True
         )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-# Hacemos conexion a la base de datos y insertamos tareas de prueba si no existen
-def insert_tasks_if_not_exists():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
 
     tasks = [
-        ('name1', 'first task', '2002-06-03', '2002-06-10', 'Completed', 1, 'Bryan'),
-        ('name2', 'second task', '2004-04-04', '2004-04-14', 'Paused', 1, 'Sofia')
+        {
+            "name": "name1",
+            "description": "first task",
+            "created_at": "2002-06-03",
+            "dead_line": "2002-06-10",
+            "status": "Completed",
+            "is_alive": True,
+            "created_by": "Bryan"
+        },
+        {
+            "name": "name2",
+            "description": "second task",
+            "created_at": "2004-04-04",
+            "dead_line": "2004-04-14",
+            "status": "Paused",
+            "is_alive": True,
+            "created_by": "Sofia"
+        }
     ]
-    
     for task in tasks:
-        name, description, created_at, dead_line, status, is_alive, created_by = task
-        cursor.execute(
-            """
-            INSERT INTO tasks (name, description, created_at, dead_line, status, is_alive, created_by)
-            SELECT ?, ?, ?, ?, ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE name = ?)
-            """,
-            (name, description, created_at, dead_line, status, is_alive, created_by, name)
+        tasks_collection.update_one(
+            {"name": task["name"]},
+            {"$setOnInsert": task},
+            upsert=True
         )
-    conn.commit()
-    conn.close()
 
-
-#Decorador para verificar el token JWT
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -95,399 +102,150 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
-
-# Ruta para obtener todas las tareas
 @app.route('/tasks', methods=['GET'])
+@limiter.limit("30 per minute")
 def get_tasks():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, description, created_at, dead_line, status, is_alive, created_by FROM tasks")
-        tasks = cursor.fetchall()
-        conn.close()
-        
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tareas recuperadas con éxito",
-                "data": [{
-                    "id": task["id"],
-                    "name": task["name"],
-                    "description": task["description"],
-                    "created_at": task["created_at"],
-                    "dead_line": task["dead_line"],
-                    "status": task["status"],
-                    "is_alive": task["is_alive"],
-                    "created_by": task["created_by"]
-                } for task in tasks]
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({"message": f"Error en la base de datos: {str(e)}", "status": "error"}), 500
+    tasks = list(tasks_collection.find())
+    return jsonify({"statusCode": 200, "intData": {"message": "Tareas recuperadas con éxito", "data": [
+        {"id": str(task["_id"]), **{k: v for k, v in task.items() if k != "_id"}}
+        for task in tasks
+    ]}})
 
-# Ruta para obtener una tarea por ID
-@app.route('/tasks/<int:task_id>', methods=['GET'])
+@app.route('/id_tasks/<string:task_id>', methods=['GET'])
+@limiter.limit("30 per minute")
 @token_required
 def id_task(task_id):
-    """Obtiene información de una tarea por ID."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, description, created_at, dead_line, status, is_alive, created_by FROM tasks WHERE id = ?", (task_id,))
-        task = cursor.fetchone()
-        conn.close()
-        
+        task = tasks_collection.find_one({"_id": ObjectId(task_id)})
         if not task:
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "Tarea no encontrada por ID",
-                    "data": None
-                }
-            })
-        
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tarea recuperada con exito",
-                "data": {
-                    "id": task["id"],
-                    "name": task["name"],
-                    "description": task["description"],
-                    "created_at": task["created_at"],
-                    "dead_line": task["dead_line"],
-                    "status": task["status"],
-                    "is_alive": task["is_alive"],
-                    "created_by": task["created_by"]
-                }
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({"message": f"Error en la base de datos: {str(e)}", "status": "error"}), 500
-    
-    
-# Ruta para obtener una tarea por Usuario
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada", "data": None}})
+        task['id'] = str(task['_id'])
+        del task['_id']
+        return jsonify({"statusCode": 200, "intData": {"message": "Tarea recuperada con éxito", "data": task}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
+
 @app.route('/Usertasks/<string:created_by>', methods=['GET'])
+@limiter.limit("30 per minute")
 @token_required
 def get_task_created_by(created_by):
-    """Obtiene todas las tareas creadas por un usuario específico."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, name, description, created_at, dead_line, status, is_alive, created_by FROM tasks WHERE created_by = ?",
-            (created_by,)
-        )
-        tasks = cursor.fetchall()
-        conn.close()
-        
-        if not tasks:
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "No se encontraron tareas para este usuario.",
-                    "data": []
-                }
-            })
-        
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tareas recuperadas con éxito",
-                "data": [{
-                    "id": task["id"],
-                    "name": task["name"],
-                    "description": task["description"],
-                    "created_at": task["created_at"],
-                    "dead_line": task["dead_line"],
-                    "status": task["status"],
-                    "is_alive": task["is_alive"],
-                    "created_by": task["created_by"]
-                } for task in tasks]
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({"message": f"Error en la base de datos: {str(e)}", "status": "error"}),
-    
+    tasks = list(tasks_collection.find({"created_by": created_by}))
+    if not tasks:
+        return jsonify({"statusCode": 404, "intData": {"message": "No se encontraron tareas para este usuario.", "data": []}})
+    for task in tasks:
+        task['id'] = str(task['_id'])
+        del task['_id']
+    return jsonify({"statusCode": 200, "intData": {"message": "Tareas recuperadas con éxito", "data": tasks}})
 
-# Opciones válidas para status
-VALID_STATUSES = ['InProgress', 'Revision', 'Completed', 'Paused', 'Incomplete']
-
-# Ruta para crear una nueva tarea
 @app.route('/register_task', methods=['POST'])
+@limiter.limit("30 per minute")
 @token_required
 def create_task():
     data = request.get_json()
-
     required_fields = ['name', 'description', 'created_at', 'dead_line', 'status', 'is_alive', 'created_by']
     if not all(field in data for field in required_fields):
-        return jsonify({"message": "Todos los campos son requeridos", "status": "error"}), 400
+        return jsonify({"statusCode": 400, "intData": {"message": "Todos los campos son requeridos", "data": None}})
     
-    name = data['name']
-    description = data['description']
-    created_at = data['created_at']
-    dead_line = data['dead_line']
-    status = data['status']
-    is_alive = data['is_alive']
-    created_by = data['created_by']
-    
-    # Validar que status sea correcto
     if data['status'] not in VALID_STATUSES:
-        return jsonify({"error": f"El status debe ser uno como: {', '.join(VALID_STATUSES)}"}), 400
+        return jsonify({"statusCode": 400, "intData": {"message": f"El status debe ser uno de: {', '.join(VALID_STATUSES)}", "data": None}})
     
-    if not validate_date(created_at) or not validate_date(dead_line):
-        return jsonify({
-            "statusCode": 400,
-            "intData": {
-                "message": "Dia de formato invalido (YYYY-MM-DD)",
-                "data": None
-            }
-        })
+    if not validate_date(data['created_at']) or not validate_date(data['dead_line']):
+        return jsonify({"statusCode": 400, "intData": {"message": "Formato de día inválido (YYYY-MM-DD)", "data": None}})
+    
+    if tasks_collection.find_one({"name": data["name"]}):
+        return jsonify({"statusCode": 400, "intData": {"message": "El nombre de la tarea ya existe", "data": None}})
+    
+    result = tasks_collection.insert_one(data)
+    data["id"] = str(result.inserted_id)
+    if '_id' in data:
+        del data['_id']  # Eliminar el ObjectId no serializable
+    return jsonify({"statusCode": 201, "intData": {"message": "Tarea creada exitosamente", "data": data}})
+
+@app.route('/update_task/<string:task_id>', methods=['PUT'])
+@limiter.limit("30 per minute")
+@token_required
+def edit_task(task_id):
+    data = request.get_json()
+    if '_id' in data:
+        del data['_id']
+    required_fields = ['name', 'description', 'created_at', 'dead_line', 'status', 'is_alive', 'created_by']
+    if not all(field in data for field in required_fields):
+        return jsonify({"statusCode": 400, "intData": {"message": "Todos los campos son requeridos", "data": None}})
+    
+    if data['status'] not in VALID_STATUSES:
+        return jsonify({"statusCode": 400, "intData": {"message": f"El status debe ser uno de: {', '.join(VALID_STATUSES)}", "data": None}})
+    
+    if not validate_date(data['created_at']) or not validate_date(data['dead_line']):
+        return jupytext({"statusCode": 400, "intData": {"message": "Formato de día inválido (YYYY-MM-DD)", "data": None}})
     
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        obj_id = ObjectId(task_id)
+        existing_task = tasks_collection.find_one({"name": data["name"], "_id": {"$ne": obj_id}})
+        if existing_task:
+            return jsonify({"statusCode": 400, "intData": {"message": "El nombre de la tarea ya existe", "data": None}})
         
-        cursor.execute(
-            """INSERT INTO tasks (name, description, created_at, dead_line, status, is_alive, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, description, created_at, dead_line, status, is_alive, created_by)
-        )
-        conn.commit()
-        conn.close()
-        
-        return jsonify({
-            "statusCode": 201,
-            "intData": {
-                "message": "Tarea creada exitosamente",
-                "data": None
-            }
-        })
-    
-    except sqlite3.Error as e:
-        return jsonify({
-            "statusCode": 500,
-            "intData": {
-                "message": f"Database error: {str(e)}",
-                "data": None
-            }
-        })
+        result = tasks_collection.update_one({"_id": obj_id}, {"$set": data})
+        if result.matched_count == 0:
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada", "data": None}})
+        return jsonify({"statusCode": 200, "intData": {"message": "Tarea editada exitosamente", "data": None}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
 
-# Ruta para desabilitar una tarea
-@app.route('/disable_task/<int:task_id>', methods=['PUT'])
+@app.route('/delete_task/<string:task_id>', methods=['DELETE'])
+@limiter.limit("30 per minute")
+@token_required
+def delete_task(task_id):
+    try:
+        result = tasks_collection.delete_one({"_id": ObjectId(task_id)})
+        if result.deleted_count == 0:
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada", "data": None}})
+        return jsonify({"statusCode": 200, "intData": {"message": "Tarea eliminada exitosamente", "data": None}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
+
+@app.route('/disable_task/<string:task_id>', methods=['PUT'])
+@limiter.limit("30 per minute")
 @token_required
 def disable_task(task_id):
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE tasks SET is_alive = 0 WHERE id = ?", (task_id,))
-        conn.commit()
-        
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "Tarea no encontrada para desabilitar",
-                    "data": None
-                }
-            })
-        
-        conn.close()
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tarea desabilitada exitosamente",
-                "data": None
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({
-            "statusCode": 500,
-            "intData": {
-                "message": f"Database error: {str(e)}",
-                "data": None
-            }
-        })
+        result = tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"is_alive": False}})
+        if result.modified_count == 0:
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada para deshabilitar", "data": None}})
+        return jsonify({"statusCode": 200, "intData": {"message": "Tarea deshabilitada exitosamente", "data": None}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
 
-# Ruta para habilitar una tarea
-@app.route('/enable_task/<int:task_id>', methods=['PUT'])
+@app.route('/enable_task/<string:task_id>', methods=['PUT'])
+@limiter.limit("30 per minute")
 @token_required
 def enable_task(task_id):
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE tasks SET is_alive = 1 WHERE id = ?", (task_id,))
-        conn.commit()
-        
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "Tarea no encontrada para habilitar",
-                    "data": None
-                }
-            })
-        
-        conn.close()
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tarea habilitada exitosamente",
-                "data": None
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({
-            "statusCode": 500,
-            "intData": {
-                "message": f"Database error: {str(e)}",
-                "data": None
-            }
-        })
-        
-# Ruta para actualizar solo el estado de una tarea
-@app.route('/update_task_status/<int:task_id>', methods=['PUT'])
+        result = tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"is_alive": True}})
+        if result.modified_count == 0:
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada para habilitar", "data": None}})
+        return jsonify({"statusCode": 200, "intData": {"message": "Tarea habilitada exitosamente", "data": None}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
+
+@app.route('/update_task_status/<string:task_id>', methods=['PUT'])
+@limiter.limit("30 per minute")
 @token_required
 def update_task_status(task_id):
     data = request.get_json()
-    
     if 'status' not in data:
-        return jsonify({
-            "statusCode": 400,
-            "intData": {
-                "message": "El campo status es obligatorio",
-                "data": None
-            }
-        })
-    
+        return jsonify({"statusCode": 400, "intData": {"message": "El campo status es obligatorio", "data": None}})
     status = data['status']
-    
-    # Validar que status sea correcto
     if status not in VALID_STATUSES:
-        return jsonify({
-            "statusCode": 400,
-            "intData": {
-                "message": f"El status debe ser uno de: {', '.join(VALID_STATUSES)}",
-                "data": None
-            }
-        })
-    
+        return jsonify({"statusCode": 400, "intData": {"message": f"El status debe ser uno de: {', '.join(VALID_STATUSES)}", "data": None}})
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "UPDATE tasks SET status = ? WHERE id = ?",
-            (status, task_id)
-        )
-        conn.commit()
-        
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "Tarea no encontrada para actualizar estado",
-                    "data": None
-                }
-            })
-        
-        conn.close()
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Estado de la tarea actualizado exitosamente",
-                "data": None
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({
-            "statusCode": 500,
-            "intData": {
-                "message": f"Database error: {str(e)}",
-                "data": None
-            }
-        })
+        result = tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"status": status}})
+        if result.modified_count == 0:
+            return jsonify({"statusCode": 404, "intData": {"message": "Tarea no encontrada para actualizar estado", "data": None}})
+        return jsonify({"statusCode": 200, "intData": {"message": "Estado de la tarea actualizado exitosamente", "data": None}})
+    except ValueError:
+        return jsonify({"statusCode": 400, "intData": {"message": "ID de tarea inválido", "data": None}})
 
-# Ruta para actualizar una tarea
-@app.route('/update_task/<int:task_id>', methods=['PUT'])
-@token_required
-def update_task(task_id):
-    data = request.get_json()
-    
-    required_fields = ['name', 'description', 'created_at', 'dead_line', 'status', 'is_alive', 'created_by']
-    if not all(field in data for field in required_fields):
-        return jsonify({
-            "statusCode": 400,
-            "intData": {
-                "message": "Todos los campos son obligatorios",
-                "data": None
-            }
-        })
-    
-    name = data['name']
-    description = data['description']
-    created_at = data['created_at']
-    dead_line = data['dead_line']
-    status = data['status']
-    is_alive = data['is_alive']
-    created_by = data['created_by']
-    
-    # Validar que status sea correcto
-    if data['status'] not in VALID_STATUSES:
-        return jsonify({"error": f"El status debe ser uno como: {', '.join(VALID_STATUSES)}"}), 400
-    
-    if not validate_date(created_at) or not validate_date(dead_line):
-        return jsonify({
-            "statusCode": 400,
-            "intData": {
-                "message": "Formato de dia invalido (YYYY-MM-DD)",
-                "data": None
-            }
-        })
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            """UPDATE tasks SET name = ?, description = ?, created_at = ?, dead_line = ?, status = ?, 
-                is_alive = ?, created_by = ? WHERE id = ?""",
-            (name, description, created_at, dead_line, status, is_alive, created_by, task_id)
-        )
-        conn.commit()
-        
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({
-                "statusCode": 404,
-                "intData": {
-                    "message": "Tarea no encontrada para editar",
-                    "data": None
-                }
-            })
-        
-        conn.close()
-        return jsonify({
-            "statusCode": 200,
-            "intData": {
-                "message": "Tarea actualizada exitosamente",
-                "data": None
-            }
-        })
-    except sqlite3.Error as e:
-        return jsonify({
-            "statusCode": 500,
-            "intData": {
-                "message": f"Database error: {str(e)}",
-                "data": None
-            }
-        })
-
-#! Iniciamos el servidor en el puerto 5003 
 if __name__ == '__main__':
-    init_db()                     # <-- Primero crear tabla si no existe
-    insert_tasks_if_not_exists()  # Inserta las tareas de prueba si no existen
-    app.run(port=5003, debug=True)
+    init_db()
+    port = int(os.environ.get('PORT', 5003))
+    app.run(host='0.0.0.0', port=port, debug=True)

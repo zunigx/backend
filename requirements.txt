@@ -1,5 +1,11 @@
-Flask==3.0.3
-PyJWT==2.10.1
-requests==2.32.4
-Werkzeug==3.0.3
-Flask-Cors==3.0.10
+flask
+flask-cors
+flask-limiter
+pymongo
+requests
+pyotp
+qrcode
+werkzeug
+gunicorn
+jwt  
+pillow  
