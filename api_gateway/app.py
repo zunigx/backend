@@ -24,9 +24,9 @@ MONGO_URI = os.environ.get(
     'MONGO_URI',
     "mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/gateway_db?retryWrites=true&w=majority&tls=true"
 )
-AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "http://localhost:5001")
-USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "http://localhost:5002")
-TASK_SERVICE_URL = os.environ.get('TASK_SERVICE_URL', "http://localhost:5003")
+AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "https://auth-services-ja81.onrender.com")
+USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "https://user-services-wwqz.onrender.com")
+TASK_SERVICE_URL = os.environ.get('TASK_SERVICE_URL', "https://task-services-vrvc.onrender.com")
 SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
 
 # =========================
