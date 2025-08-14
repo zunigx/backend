@@ -3,7 +3,7 @@
 Una aplicación basada en microservicios para la gestión de tareas, la autenticación de usuarios y el manejo de datos de usuarios, desarrollada con Flask y SQLite. El sistema consta de cuatro servicios: API Gateway, Servicio de Autenticación, Servicio de Usuario y Servicio de Tareas, orquestados mediante un script Bash.
 
 ## Desarrollador
-- CORTES CORTES BRYAN AXEL
+- Emmanuel Zuñiga Suare<>
 
 ## Descripción general de los servicios
 

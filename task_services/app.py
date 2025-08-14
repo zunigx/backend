@@ -15,7 +15,7 @@ CORS(app)
 
 # Configuración de MongoDB Atlas y claves desde variables de entorno
 SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
-MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/tasks_db?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://2022371089:1234@cluster.lyxbpfa.mongodb.net/tasks_db?retryWrites=true&w=majority&appName=Cluster")
 client = MongoClient(MONGO_URI)
 db = client['tasks_db']
 tasks_collection = db['tasks']
@@ -63,7 +63,7 @@ def init_db():
             "dead_line": "2002-06-10",
             "status": "Completed",
             "is_alive": True,
-            "created_by": "Bryan"
+            "created_by": "Emmanuel"
         },
         {
             "name": "name2",
@@ -72,7 +72,7 @@ def init_db():
             "dead_line": "2004-04-14",
             "status": "Paused",
             "is_alive": True,
-            "created_by": "Sofia"
+            "created_by": "Ariadna"
         }
     ]
     for task in tasks:

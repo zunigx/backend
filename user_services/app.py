@@ -8,7 +8,7 @@ import os  # Agregado para variables de entorno
 
 app = Flask(__name__)
 
-client = MongoClient(os.environ.get('MONGO_URI', 'mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/users_db?retryWrites=true&w=majority&appName=Cluster0'))
+client = MongoClient(os.environ.get('MONGO_URI', 'mongodb+srv://2022371089:1234@cluster.lyxbpfa.mongodb.net/users_db?retryWrites=true&w=majority&appName=Cluster'))
 db = client['users_db']
 users_collection = db['users']
 

@@ -22,7 +22,7 @@ CORS(app)
 # =========================
 MONGO_URI = os.environ.get(
     'MONGO_URI',
-    "mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/gateway_db?retryWrites=true&w=majority&tls=true"
+    "mongodb+srv://2022371089:1234@cluster.lyxbpfa.mongodb.net/gateway_db?retryWrites=true&w=majority&appName=Cluster"
 )
 AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "https://auth-services-ja81.onrender.com")
 USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "https://user-services-wwqz.onrender.com")
