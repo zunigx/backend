@@ -30,7 +30,7 @@ AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', "https://auth-services-ja8
 USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', "https://user-services-wwqz.onrender.com")
 TASK_SERVICE_URL = os.environ.get('TASK_SERVICE_URL', "https://task-services-vrvc.onrender.com")
 SECRET_KEY = os.environ.get('SECRET_KEY', "QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g")
-REDIS_URL = os.environ.get('REDIS_URL', "redis://red-d2gm9ibuibrs73eft4l0:6379")  # Redis URL from Render
+REDIS_URL = os.environ.get('REDIS_URL', "redis://red-d2hbmpruibrs73f4n4bg:6379")
 
 # =========================
 # Configuración del logger
