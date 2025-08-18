@@ -17,7 +17,7 @@ app = Flask(__name__)
 CORS(app)
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'QHZ/5n4Y+AugECPP12uVY/9mWZ14nqEfdiBB8Jo6//g')
-client = MongoClient(os.environ.get('MONGO_URI', 'mongodb+srv://2023171002:1234@cluster0.rquhrnu.mongodb.net/auth_db?retryWrites=true&w=majority&appName=Cluster0'))
+client = MongoClient(os.environ.get('MONGO_URI', 'mongodb+srv://2022371089:1234@cluster.lyxbpfa.mongodb.net/auth_db?retryWrites=true&w=majority&appName=Cluster'))
 db = client['auth_db']
 users_collection = db['users']
 logs_collection = db['auth_logs']
